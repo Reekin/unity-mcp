@@ -63,7 +63,7 @@ def main():
         else:
             # Text format output with ASCII compatible symbols
             if result["success"]:
-                print(f"[SUCCESS] {result['message']}")
+                print(f"{result['message']}")
                 if result["compilation_logs"]:
                     print(f"\n[LOGS] Compilation logs ({len(result['compilation_logs'])} entries):")
                     for i, log in enumerate(result["compilation_logs"], 1):
@@ -71,7 +71,7 @@ def main():
                 else:
                     print("[LOGS] No compilation errors or warnings")
             else:
-                print(f"[ERROR] {result['message']}")
+                print(f"[COMPILATION FAILED] {result['message']}")
         
         logger.info(f"Compilation completed, success: {result['success']}")
         

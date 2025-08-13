@@ -37,16 +37,14 @@ try {
     
     # 根据退出码决定输出格式
     if ($exitCode -eq 0) {
-        # 编译成功 - 不阻塞
         $output = @{
             decision = "block"
-            reason = "$pythonOutput`nSucceeded"
+            reason = "$pythonOutput"
         } | ConvertTo-Json -Compress
     } else {
-        # 编译失败 - 阻塞
         $output = @{
             decision = "block"
-            reason = "$pythonOutput`nFailed with exit code: $exitCode"
+            reason = "$pythonOutput`nExecution failed with exit code: $exitCode"
         } | ConvertTo-Json -Compress
     }
     
@@ -54,10 +52,9 @@ try {
     exit $exitCode
 }
 catch {
-    # 执行异常 - 阻塞
     $errorOutput = @{
         decision = "block"
-        reason = "Start compiling`nExecution failed: $($_.Exception.Message)"
+        reason = "Execution failed: $($_.Exception.Message)"
     } | ConvertTo-Json -Compress
     
     Write-Output $errorOutput
