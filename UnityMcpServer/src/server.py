@@ -200,106 +200,22 @@ def compile_project(ctx: Context) -> Dict[str, Any]:
             "compilation_logs": List[str]
         }
     """
+    from unity_compile_core import UnityCompileCore
+    
     try:
-        # First, trigger Unity compilation by calling project_files_refresher
+        # Get Unity connection from context
         bridge = getattr(ctx, 'bridge', None)
         if not bridge:
             bridge = get_unity_connection()
         
-        if bridge:
-            logger.info("Triggering Unity compilation via project_files_refresher...")
-            refresh_response = bridge.send_command("project_files_refresher", {})
-            if not refresh_response.get("success"):
-                logger.warning(f"project_files_refresher failed: {refresh_response.get('error', 'Unknown error')}")
-            else:
-                logger.info("project_files_refresher completed successfully")
-                # Wait a bit for compilation to start
-                import time
-                time.sleep(3)
-        else:
-            logger.warning("Unity connection not available, skipping project_files_refresher")
-        
-        # Now proceed to read the compilation log
-        # Get Unity Editor.log path
-        localappdata = os.environ.get('LOCALAPPDATA')
-        if not localappdata:
-            # In WSL, try to use Windows path
-            user = os.environ.get('USER', 'Unknown')
-            localappdata = f"/mnt/c/Users/{user}/AppData/Local"
-        
-        editor_log_path = Path(localappdata) / "Unity" / "Editor" / "Editor.log"
-        
-        if not editor_log_path.exists():
-            return {
-                "success": False,
-                "message": "Unity Editor.log not found",
-                "compilation_logs": []
-            }
-        
-        # Read log file
-        with open(editor_log_path, 'r', encoding='utf-8', errors='ignore') as f:
-            lines = f.readlines()
-        
-        # Find the last "EditorCompilation:InvokeCompilationStarted"
-        compilation_start_index = -1
-        for i in range(len(lines) - 1, -1, -1):
-            if "EditorCompilation:InvokeCompilationStarted" in lines[i]:
-                compilation_start_index = i
-                break
-        
-        if compilation_start_index == -1:
-            return {
-                "success": False,
-                "message": "EditorCompilation:InvokeCompilationStarted marker not found",
-                "compilation_logs": []
-            }
-        
-        # Find the last "* Tundra" line after compilation_start_index
-        tundra_index = -1
-        for i in range(len(lines) - 1, compilation_start_index, -1):
-            if "* Tundra" in lines[i]:
-                tundra_index = i
-                break
-        
-        if tundra_index == -1:
-            return {
-                "success": False,
-                "message": "* Tundra not found after EditorCompilation:InvokeCompilationStarted",
-                "compilation_logs": []
-            }
-        
-        # Find "# Output" line before the Tundra marker (searching backwards)
-        output_start_index = -1
-        for i in range(tundra_index - 1, compilation_start_index, -1):
-            if "# Output" in lines[i]:
-                output_start_index = i
-                break
-        
-        if output_start_index == -1:
-            return {
-                "success": False,
-                "message": f"# Output not found before * Tundra from {compilation_start_index} to {tundra_index}",
-                "compilation_logs": []
-            }
-        
-        # Extract lines between "# Output" and "* Tundra"
-        compilation_logs = []
-        for i in range(output_start_index + 1, tundra_index):
-            line = lines[i].strip()
-            if line:  # Skip empty lines
-                compilation_logs.append(line)
-        
-        return {
-            "success": True,
-            "message": f"Successfully read {len(compilation_logs)} lines of compilation records from {output_start_index} to {tundra_index}",
-            "compilation_logs": compilation_logs
-        }
+        # Use the unified core compilation logic
+        return UnityCompileCore.compile_project(unity_connection=bridge, skip_trigger=False)
         
     except Exception as e:
-        logger.error(f"Error reading Unity compilation log: {str(e)}")
+        logger.error(f"Error in MCP compile_project: {str(e)}")
         return {
             "success": False,
-            "message": f"Error reading log: {str(e)}",
+            "message": f"MCP compilation error: {str(e)}",
             "compilation_logs": []
         }
 
