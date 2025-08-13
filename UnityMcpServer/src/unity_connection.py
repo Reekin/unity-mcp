@@ -8,7 +8,9 @@ from config import config
 # Configure logging using settings from config
 logging.basicConfig(
     level=getattr(logging, config.log_level),
-    format=config.log_format
+    format=config.log_format,
+    filename='unity_mcp_server.log',
+    filemode='a'
 )
 logger = logging.getLogger("unity-mcp-server")
 

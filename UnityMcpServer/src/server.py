@@ -11,11 +11,6 @@ import os
 import re
 from pathlib import Path
 
-# Configure logging using settings from config
-logging.basicConfig(
-    level=getattr(logging, config.log_level),
-    format=config.log_format
-)
 logger = logging.getLogger("unity-mcp-server")
 
 # Global connection state
@@ -143,16 +138,6 @@ def register_dynamic_unity_tools(mcp: FastMCP, tools_metadata: List[Dict[str, An
                     "function_name": tool.function.__name__ if hasattr(tool, 'function') else 'unknown'
                 }
             
-            # Generate timestamp and save to JSON file
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            log_filename = f"log_{timestamp}.json"
-            log_filepath = os.path.join(os.getcwd(), log_filename)
-            
-            with open(log_filepath, 'w', encoding='utf-8') as f:
-                json.dump(current_tools, f, indent=2, ensure_ascii=False)
-            
-            logger.info(f"Current tools in MCP registry saved to: {log_filepath}")
-            
         except Exception as e:
             logger.error(f"Failed to register tool {command_type}: {str(e)}")
     
@@ -202,8 +187,10 @@ mcp = create_mcp_server()
 # Static Unity Tools
 
 @mcp.tool()
-def read_unity_compilation_log(ctx: Context) -> Dict[str, Any]:
-    """Read the latest compilation records from Unity Editor.log, can be used as an alternative get_diagnostic method when unity mcp bridge is unavailable.
+def compile_project(ctx: Context) -> Dict[str, Any]:
+    """Trigger Unity project compilation and read the compilation results from Editor.log.
+    
+    This is the most powerful and efficient method to get the latest lint infos of the project.
     
     Returns:
         Dict[str, Any]: Dictionary containing compilation records, format:
@@ -214,6 +201,25 @@ def read_unity_compilation_log(ctx: Context) -> Dict[str, Any]:
         }
     """
     try:
+        # First, trigger Unity compilation by calling project_files_refresher
+        bridge = getattr(ctx, 'bridge', None)
+        if not bridge:
+            bridge = get_unity_connection()
+        
+        if bridge:
+            logger.info("Triggering Unity compilation via project_files_refresher...")
+            refresh_response = bridge.send_command("project_files_refresher", {})
+            if not refresh_response.get("success"):
+                logger.warning(f"project_files_refresher failed: {refresh_response.get('error', 'Unknown error')}")
+            else:
+                logger.info("project_files_refresher completed successfully")
+                # Wait a bit for compilation to start
+                import time
+                time.sleep(3)
+        else:
+            logger.warning("Unity connection not available, skipping project_files_refresher")
+        
+        # Now proceed to read the compilation log
         # Get Unity Editor.log path
         localappdata = os.environ.get('LOCALAPPDATA')
         if not localappdata:
@@ -248,44 +254,44 @@ def read_unity_compilation_log(ctx: Context) -> Dict[str, Any]:
                 "compilation_logs": []
             }
         
-        # Starting from compilation_start_index, first find ExitCode line
-        exitcode_index = -1
-        for i in range(compilation_start_index + 1, len(lines)):
-            if "ExitCode" in lines[i]:
-                exitcode_index = i
-                break
-        
-        if exitcode_index == -1:
-            return {
-                "success": False,
-                "message": "ExitCode not found after EditorCompilation:InvokeCompilationStarted",
-                "compilation_logs": []
-            }
-        
-        # Find Tundra build line after ExitCode line
+        # Find the last "* Tundra" line after compilation_start_index
         tundra_index = -1
-        for i in range(exitcode_index + 1, len(lines)):
-            if "Tundra build" in lines[i]:
+        for i in range(len(lines) - 1, compilation_start_index, -1):
+            if "* Tundra" in lines[i]:
                 tundra_index = i
                 break
         
         if tundra_index == -1:
             return {
                 "success": False,
-                "message": "Tundra build not found after ExitCode",
+                "message": "* Tundra not found after EditorCompilation:InvokeCompilationStarted",
                 "compilation_logs": []
             }
         
-        # Extract lines between ExitCode and Tundra build
+        # Find "# Output" line before the Tundra marker (searching backwards)
+        output_start_index = -1
+        for i in range(tundra_index - 1, compilation_start_index, -1):
+            if "# Output" in lines[i]:
+                output_start_index = i
+                break
+        
+        if output_start_index == -1:
+            return {
+                "success": False,
+                "message": f"# Output not found before * Tundra from {compilation_start_index} to {tundra_index}",
+                "compilation_logs": []
+            }
+        
+        # Extract lines between "# Output" and "* Tundra"
         compilation_logs = []
-        for i in range(exitcode_index + 1, tundra_index):
+        for i in range(output_start_index + 1, tundra_index):
             line = lines[i].strip()
             if line:  # Skip empty lines
                 compilation_logs.append(line)
         
         return {
             "success": True,
-            "message": f"Successfully read {len(compilation_logs)} lines of compilation records",
+            "message": f"Successfully read {len(compilation_logs)} lines of compilation records from {output_start_index} to {tundra_index}",
             "compilation_logs": compilation_logs
         }
         
